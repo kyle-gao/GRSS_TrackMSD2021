@@ -1,22 +1,14 @@
-import urllib.request
 import os
 import torch
-import torch.nn as nn
-from torch.nn import functional as F
-import shutil
+import torch.nn.functional as F
 import gdal
-import matplotlib.pyplot as plt
-from torch.utils.data import Dataset, DataLoader
-import pandas as pd
 import numpy as np
-import torchvision
 from PIL import Image
-
 
 
 class TileMaker():
 
-    def __init__(self, tile_index, root_dir, tilesize=390, image_size=3880):
+    def __init__(self, tile_index, root_dir, tilesize=390, target_image_size=3900):
         """
         args:
         str-tile_index:str list of naip tile indexes
@@ -27,17 +19,17 @@ class TileMaker():
         with open(tile_index) as f:
             tiles = f.readlines()
             tiles = [t.replace("\n", "") for t in tiles]
-            self.tiles = tiles
-            self.root_dir = root_dir
-            self.tilesize = tilesize
-            self.image_size = image_size
-            self.__repeats = int(np.ceil(image_size / tilesize))
+
+        self.tiles = tiles
+        self.root_dir = root_dir
+        self.tilesize = tilesize
+        self.image_size = target_image_size
+        self.__repeats = int(np.ceil(target_image_size / tilesize))
 
     def __make_tiles(self, image):
         """
         Args:
         torch array - image (bands,w,h)
-
         splits an image into (n*n) tiles where n-repeats
         image must be (size*n,size*n)
         output:
@@ -55,12 +47,19 @@ class TileMaker():
         """args
         -imagename pathname for a tiff file
         returns a float32 torch tensor
-
         """
 
         image = torch.tensor(gdal.Open(imagename).ReadAsArray())
+
+        isoddx = image.shape[-2] % 2
+        isoddy = image.shape[-1] % 2
+
         if pad:
-            image = F.pad(image, [10, 10, 10, 10])
+            padx = int((self.image_size - image.shape[-2]) / 2)
+            pady = int((self.image_size - image.shape[-1]) / 2)
+
+            image = F.pad(image, [pady, pady + isoddy, padx + isoddx, padx])
+
         if unsqueeze:
             image = image.unsqueeze(0)
         return image
@@ -70,7 +69,6 @@ class TileMaker():
         writes tiles to target directory
         Args
         str - tiledir : target directory
-
         """
 
         if not (os.path.isdir(tiledir)):
