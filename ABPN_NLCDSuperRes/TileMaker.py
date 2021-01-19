@@ -1,14 +1,16 @@
 import os
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import gdal
 import numpy as np
 from PIL import Image
 
 
+
 class TileMaker():
 
-    def __init__(self, tile_index, root_dir, tilesize=390, target_image_size=3900):
+    def __init__(self, tile_index, root_dir, tilesize = 390, target_image_size = 3900):
         """
         args:
         str-tile_index:str list of naip tile indexes
@@ -51,25 +53,30 @@ class TileMaker():
 
         image = torch.tensor(gdal.Open(imagename).ReadAsArray())
 
-        isoddx = image.shape[-2] % 2
-        isoddy = image.shape[-1] % 2
+        isoddx = image.shape[-2]%2
+        isoddy = image.shape[-1]%2
+
 
         if pad:
-            padx = int((self.image_size - image.shape[-2]) / 2)
-            pady = int((self.image_size - image.shape[-1]) / 2)
+            padx = int((self.image_size - image.shape[-2])/2)
+            pady = int((self.image_size - image.shape[-1])/2)
 
             image = F.pad(image, [pady, pady + isoddy, padx + isoddx, padx])
 
+        
         if unsqueeze:
             image = image.unsqueeze(0)
         return image
 
-    def write_naip_tiles(self, tiledir, return_tiles_and_bands=False):
+
+    def write_naip_tiles_singleband(self, tiledir, return_tiles_and_bands=False, saveformat = "tif"):
         """
         writes tiles to target directory
         Args
         str - tiledir : target directory
+        saveformat - see PIL.Image.save()
         """
+        
 
         if not (os.path.isdir(tiledir)):
             os.mkdir(tiledir)
@@ -84,6 +91,7 @@ class TileMaker():
             image2013 = self.__get_tensor(img_name2013)
             image2017 = self.__get_tensor(img_name2017)
 
+
             batches2013 = self.__make_tiles(image2013)
             batches2017 = self.__make_tiles(image2017)
 
@@ -94,13 +102,68 @@ class TileMaker():
                 for band in range(bands):
                     # tilename format /content/tiles/2002_99_0_naip2013.pt
                     # use tilename.split("_") = ['/content/tiles/2002', '99', '0', 'naip2013.pt'] to reacquire tile and band
-                    tilename1 = os.path.join(tiledir, supertile + "_" + str(tile) + "_" + str(band) + "_naip2013.tif")
-                    tilename2 = os.path.join(tiledir, supertile + "_" + str(tile) + "_" + str(band) + "_naip2017.tif")
+                    tilename1 = os.path.join(tiledir, supertile + "_" + str(tile) + "_" + str(band) + "_naip2013."+saveformat)
+                    tilename2 = os.path.join(tiledir, supertile + "_" + str(tile) + "_" + str(band) + "_naip2017."+saveformat)
                     image1 = Image.fromarray(batches2013[tile, band, :, :].numpy())
                     image2 = Image.fromarray(batches2017[tile, band, :, :].numpy())
 
-                    image1.save(tilename1, format="tiff")
-                    image2.save(tilename2, fotmat="tiff")
+                    if saveformat == 'tif':
+                        saveformat = 'tiff'
+                        
+
+                    image1.save(tilename1, format=saveformat)
+                    image2.save(tilename2, fotmat=saveformat)
+                    
+
+            if return_tiles_and_bands:
+                return ntiles, bands
+
+    def write_naip_tiles_rgb(self, tiledir, return_tiles_and_bands=False, saveformat = "tif"):
+        """
+        writes tiles to target directory
+        Args
+        str - tiledir : target directory
+        saveformat - see PIL.Image.save()
+        """
+        
+
+        if not (os.path.isdir(tiledir)):
+            os.mkdir(tiledir)
+
+        supertiles = self.tiles
+        # (naip images in the datasets are also called tiles, we are making tiles out of these tiles)
+        for supertile in supertiles:
+
+            img_name2013 = os.path.join(self.root_dir, supertile + "_naip-2013.tif")
+            img_name2017 = os.path.join(self.root_dir, supertile + "_naip-2017.tif")
+
+            image2013 = self.__get_tensor(img_name2013)
+            image2017 = self.__get_tensor(img_name2017)
+
+
+            batches2013 = self.__make_tiles(image2013)
+            batches2017 = self.__make_tiles(image2017)
+
+            # (25,nbands,780,780)
+            ntiles, bands, _, _ = batches2013.shape
+
+            for tile in range(ntiles):
+
+                    # tilename format /content/tiles/2002_99_0_naip2013.pt
+                    # use tilename.split("_") = ['/content/tiles/2002', '99', '0', 'naip2013.pt'] to reacquire tile and band
+                    tilename1 = os.path.join(tiledir, supertile + "_" + str(tile) + "_naip2013."+saveformat)
+                    tilename2 = os.path.join(tiledir, supertile + "_" + str(tile) + "_naip2017."+saveformat)
+
+                    image1 = Image.fromarray(batches2013[tile, 0:3, :, :].numpy().transpose((1,2,0)))
+                    image2 = Image.fromarray(batches2017[tile, 0:3, :, :].numpy().transpose((1,2,0)))
+
+                    if saveformat == 'tif':
+                        saveformat = 'tiff'
+                        
+
+                    image1.save(tilename1, format=saveformat)
+                    image2.save(tilename2, fotmat=saveformat)
+                    
 
             if return_tiles_and_bands:
                 return ntiles, bands
